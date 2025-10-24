@@ -1,0 +1,1234 @@
+import numpy as np
+import pandas as pd
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.dates import MO, TU, WE, TH, FR, SA, SU
+import matplotlib.font_manager as font_manager
+from matplotlib import rcParams
+from matplotlib.patches import Rectangle
+
+import functions_eda as eda
+import functions_fcst as fcst
+import functions_distri as dis
+import seaborn as sns
+from datetime import datetime
+
+#Transfer figure to PPT
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+import os
+
+from IPython.display import display, HTML
+from colour import Color
+
+pd.options.display.float_format = '{:,.0f}'.format
+
+colors2 = ['#DE2100','#439E58']
+
+CurrWW = pd.Timestamp.today().strftime('%y-%W')
+
+
+def add_count(plot):
+    '''adds counts to bar and count plots'''
+    for p in plot.patches:
+        plot.annotate(format(p.get_height(), '.0f'), 
+                       (p.get_x() + p.get_width() / 2., p.get_height()), 
+                       ha = 'center', va = 'center', 
+                       xytext = (0, 9), 
+                       textcoords = 'offset points')
+
+def value_counts_perc(df, column):
+    value_counts = df[column].value_counts()
+    
+    perc = []
+    for i in value_counts:
+        perc.append(str(round(i/sum(value_counts)*100,2)))
+    return perc
+
+
+def Act_POS_Graphs(df_lag, header, period, linecolor):
+    fig, ax1 = plt.subplots(figsize=(18,6))
+
+    f1 = sns.lineplot(data = df_lag, x=period, y='Activations', marker='o', label='Activations', sort = False, color= linecolor, ax=ax1)
+    f1.set_xticklabels(f1.get_xticklabels(),rotation=40, ha="right");
+    f1.set_title(header, fontsize=16)
+    
+    f2 = sns.barplot(data = df_lag, y='QuantitySold', x=period,alpha=0.8, label='QuantitiesSold', color= '#3B999E', ax=ax1)
+    f2.set_xticklabels(f2.get_xticklabels(),rotation=40, ha="right");
+    #f2.set_title("Inventory & IBC Micros", fontsize=16)
+    ax1.set_ylabel('Quantity (Sold & Activated)')
+    for p in f2.patches:
+            left, bottom, width, height = p.get_bbox().bounds
+            if height != 0.0:
+                    f2.annotate(format(p.get_height(), '.0f'), 
+                   (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha = 'center', va = 'center', 
+                    xytext = (0, 9), 
+                    fontsize=12,            
+                    textcoords = 'offset points')      
+    for p in f1.patches:
+            left, bottom, width, height = p.get_bbox().bounds
+            if height != 0.0:
+                    f1.annotate(format(p.get_height(), '.0f'), 
+                   (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha = 'center', va = 'center', 
+                    xytext = (0, 9), 
+                    fontsize=12,            
+                    textcoords = 'offset points')                       
+    return df_lag.tail(10)
+
+def SysSizes(dfA, Country, MAX, BINS, header):
+    dfc = dfA.query("Country == @Country & SystemSize <= @MAX").sort_values('ProductGroup')
+
+    fig, ax = plt.subplots(figsize=(14,4))
+    f = sns.histplot(data=dfc, x='SystemSize', 
+                     bins = BINS, 
+                     color = ['#DE2100','#439E58'], 
+                     stat = 'percent', hue = 'ProductGroup', multiple="stack")
+    plt.draw()
+    f.set_xlabel("SystemSize in KWp (Panel=420w)",fontsize=12)
+    f.set_ylabel("Percent %",fontsize=12)
+    f.set_title(header, fontsize=14)
+    xlabel =[]
+    xinterval = np.arange(0,MAX,MAX/10) 
+    ax.set_xticks(xinterval)
+    
+# add annotations
+    
+    for c in ax.containers:
+
+        # custom label calculates percent and add an empty string so 0 value bars don't have a number
+        labels = [f'{w:0.1f}%' if (w := v.get_height()) > 0 else '' for v in c]
+
+        ax.bar_label(c, labels=labels, label_type='edge', fontsize=8, rotation=90, padding=2)
+    
+    ax.margins(y=0.2)
+
+def make_crosstab(df, col):
+    crosstab = pd.crosstab(df[col],[df["churn"]])
+    crosstab.reset_index(level=0, inplace=True)
+    crosstab["False_per"]= crosstab[False].div(crosstab[False]+crosstab[True]).multiply(100)
+    crosstab["True_per"]= crosstab[True].div(crosstab[False]+crosstab[True]).multiply(100)
+    crosstab.drop([False, True], axis=1, inplace=True) 
+    return crosstab
+
+def Activations(df,label): 
+    f = df.plot(x='WorkWeek', 
+                y=['Avg_4wk','Avg_13wk'],
+                color = ['#EA6100','#3B999E'], 
+                kind="line");
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=14);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=10);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="center", size=8);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)
+
+    
+def ActivationsWide(df,label, Fsize): 
+    f = df.plot(x='WorkWeek', 
+                y=['Avg_4wk','Avg_13wk'],
+                color = ['#EA6100','#3B999E'], 
+                kind="line",
+                figsize=Fsize);
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=14);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=10);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="center", size=8);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)    
+    
+# def Averages(df, param):
+#     df_Act = df
+#     df_Act = df_Act.groupby(['WorkWeek'], as_index=False)[param].sum()
+#     window = 4
+#     Avg_4wk = []
+#     for ind in range(len(df_Act.Activations) - window + 1):
+#          Avg_4wk.append(np.mean(df_Act.Activations[ind:ind+window]))
+#     window = 13
+#     Avg_13wk = []
+#     for ind in range(len(df_Act.Activations) - window + 1):
+#          Avg_13wk.append(np.mean(df_Act.Activations[ind:ind+window]))  
+#     df_Act = df_Act.iloc[3:]
+#     df_Act['Avg_4wk'] = Avg_4wk
+#     df_Act = df_Act.iloc[9:]
+#     df_Act['Avg_13wk'] = Avg_13wk
+#     return df_Act
+
+def Averages(df, param):
+    df_Act = df
+    df_Act = df_Act.groupby(['WorkWeek'], as_index=False)[param].sum()
+    df_Act['Avg_4wk'] = df_Act[param].rolling(4).mean().fillna(0)
+    df_Act['Avg_13wk'] = df_Act[param].rolling(13).mean().fillna(0)
+    df_Act['WorkWeek'] = df.groupby(['WorkWeek'], as_index=False)[param].sum().WorkWeek
+    df_Act[param] = df.groupby(['WorkWeek'], as_index=False)[param].sum()[param]
+    return df_Act
+
+def QAverages(df):
+    df_Act = df.groupby(['WorkWeek'], as_index=False)["QuantitySold"].sum()
+    df_Act['Avg_4wk'] = df_Act['QuantitySold'].rolling(4).mean().fillna(0)
+    df_Act['Avg_13wk'] = df_Act['QuantitySold'].rolling(13).mean().fillna(0)
+    df_Act['WorkWeek'] = df.groupby(['WorkWeek'], as_index=False)["QuantitySold"].sum().WorkWeek
+    df_Act['QuantitySold'] = df.groupby(['WorkWeek'], as_index=False)["QuantitySold"].sum().QuantitySold
+    return df_Act
+
+
+def SAM_barchart(df, col, label, Fsize): 
+    f = df.plot(x='InstallerAccountOwner', 
+                y=[col, 'Forecast'],
+                color = ['#3B999E','#EA6100'], 
+                kind="bar",
+                figsize=Fsize);
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=10);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=16);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=10);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)
+    
+# Annotations:
+    ax = plt.gca()        
+    for p in ax.get_children()[:-1]:  # skip the last patch as it is the background
+        if isinstance(p, Rectangle):
+            x, y = p.get_xy()
+            w, h = p.get_width(), p.get_height()
+            if h > 0:  # anything that have a height of 0 will not be annotated
+                ax.text(x + 0.5 * w, y + 0.5 * h * 2.0, '%.1f'%h, ha='center', va='bottom', size=8)
+
+def X_barchart(df, X, col, col2, label, Fsize, Colors): 
+    f = df.plot(x=X, 
+                y=[col, col2],
+                color = Colors, 
+                kind="bar",
+                figsize=Fsize);
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=10);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=16);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=10);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)
+    
+# Annotations:
+    ax = plt.gca()        
+    for p in ax.get_children()[:-1]:  # skip the last patch as it is the background
+        if isinstance(p, Rectangle):
+            x, y = p.get_xy()
+            w, h = p.get_width(), p.get_height()
+            if h > 0:  # anything that have a height of 0 will not be annotated
+                ax.text(x + 0.5 * w, y + 0.5 * h * 2.0, '%.0f'%h, ha='center', va='bottom', size=8)
+                
+                
+def Product_barchart(df, col, label): 
+    f = df.plot(x='ProductName', 
+                y=[col, 'Forecast'],
+                color = ['#3B999E','#EA6100'], 
+                kind="bar");
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=10);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=16);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=10);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)
+    
+# Annotations:
+    ax = plt.gca()        
+    for p in ax.get_children()[:-1]:  # skip the last patch as it is the background
+        if isinstance(p, Rectangle):
+            x, y = p.get_xy()
+            w, h = p.get_width(), p.get_height()
+            if h > 0:  # anything that have a height of 0 will not be annotated
+                ax.text(x + 0.5 * w, y + 0.5 * h * 2.0, '%.1f'%h, ha='center', va='bottom', size=8)
+                
+                
+def PartnerNames_barchart(df, col, label): 
+    f = df.plot(x='PartnerName', 
+                y=[col, 'Forecast'],
+                color = ['#3B999E','#EA6100'], 
+                kind="bar");
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=10);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=16);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=10);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)
+    
+# Annotations:
+    ax = plt.gca()        
+    for p in ax.get_children()[:-1]:  # skip the last patch as it is the background
+        if isinstance(p, Rectangle):
+            x, y = p.get_xy()
+            w, h = p.get_width(), p.get_height()
+            if h > 0:  # anything that have a height of 0 will not be annotated
+                ax.text(x + 0.5 * w, y + 0.5 * h * 2.0, '%.1f'%h, ha='center', va='bottom', size=8)
+
+def POS_barchart(df, col, label, period): 
+    f = df.plot(x=period, 
+                y=[col, 'Forecast'],
+                color = ['#3B999E','#EA6100'], 
+                kind="bar");
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=16);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=16);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=16);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)
+    
+# Annotations:
+    ax = plt.gca()        
+    for p in ax.get_children()[:-1]:  # skip the last patch as it is the background
+        if isinstance(p, Rectangle):
+            x, y = p.get_xy()
+            w, h = p.get_width(), p.get_height()
+            if h > 0:  # anything that have a height of 0 will not be annotated
+                ax.text(x + 0.5 * w, y + 0.5 * h * 2.0, '%.1f'%h, ha='center', va='bottom', size=14)
+                
+
+def KWhr_barchart(df, col, label, period): 
+    f = df.plot(x=period, 
+                y=[col, 'Forecast'],
+                color = ['#3B999E','#EA6100'], 
+                kind="bar");
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=16);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=16);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=16);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)
+
+    
+# Annotations:
+    ax = plt.gca()        
+    for p in ax.get_children()[:-1]:  # skip the last patch as it is the background
+        if isinstance(p, Rectangle):
+            x, y = p.get_xy()
+            w, h = p.get_width(), p.get_height()
+            if h > 0:  # anything that have a height of 0 will not be annotated
+                ax.text(x + 0.5 * w, y + 0.5 * h * 2.0, '%.0f'%h, ha='center', va='bottom', size=14)                
+                
+def IC_barchart(df, col, label, period): 
+    f = df.plot(x=period, 
+                y=[col, 'Forecast'],
+                color = ['#3B999E','#EA6100'], 
+                kind="bar");
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=16);    
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=16);    
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=16);
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)
+
+# Annotations:
+    ax = plt.gca()        
+    for p in ax.get_children()[:-1]:  # skip the last patch as it is the background
+        if isinstance(p, Rectangle):
+            x, y = p.get_xy()
+            w, h = p.get_width(), p.get_height()
+            if h > 0:  # anything that have a height of 0 will not be annotated
+                ax.text(x + 0.5 * w, y + 0.5 * h * 2.0, '%.0f'%h, ha='center', va='bottom', size=14)
+
+                
+               
+#2x1            
+def ICBarchart(df_ICm, df_ICs, period, label1, label2): 
+    fig, axes = plt.subplots(ncols=2, nrows=1, figsize=(18,8))
+    for i in range(0,2):
+        f = df_ICm.plot(ax=axes[0], 
+                    x=period, 
+                    y=['InstallerName','ReportedInstallerName'],
+                    color = ['#3B999E','#EA6100'], 
+                    kind="bar");
+        f.set_yscale('log') # the 0 label will appear if I omit this line.
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right");
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend(['InstallerName(cleaned)', 'ReportedInstallerName'])
+        f.set_title(label1, color='#606060', fontweight="bold", ha="center", size=16);  
+
+        for p in f.patches:
+                f.annotate(format(p.get_height(), '.0f'), 
+               (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha = 'center', va = 'center', 
+                xytext = (0, 9), 
+                textcoords = 'offset points')
+
+        f = df_ICs.plot(ax=axes[1],
+                    x=period, 
+                    y=['QuantitySold_Cleaned', 'QuantitySold'],
+                    color = ['#3B999E','#EA6100'], 
+                    kind="bar");
+        f.set_yscale('log')
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right");
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend(['QuantitySold(cleaned)', 'QuantitySold'])
+        f.set_title(label2, color='#606060', fontweight="bold", ha="center", size=16); 
+        for p in f.patches:
+                f.annotate(format(p.get_height(), '.0f'), 
+               (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha = 'center', va = 'center', 
+                xytext = (0, 9), 
+                textcoords = 'offset points')   
+
+def POS2Bar(df1, df2, period, y11, y12, y21, y22, label1, label2, TwoColors): 
+    fig, axes = plt.subplots(ncols=2, nrows=1, figsize=(18,8))
+    for i in range(0,2):
+        f = df1.plot(ax=axes[0], 
+                    x=period, 
+                    y=[y11,y12],
+                    color = TwoColors, 
+                    kind="bar");
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right");
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend([y11, y12])
+        f.set_title(label1, color='#606060', fontweight="bold", ha="center", size=16);  
+
+        for p in f.patches:
+                f.annotate(format(p.get_height(), '.1f'), 
+               (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha = 'center', va = 'center', 
+                xytext = (0, 9), 
+                textcoords = 'offset points')
+
+        f = df2.plot(ax=axes[1],
+                    x=period, 
+                    y=[y21,y22],
+                    color = TwoColors, 
+                    kind="bar");
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right");
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend([y21, y22])
+        f.set_title(label2, color='#606060', fontweight="bold", ha="center", size=16); 
+        for p in f.patches:
+                f.annotate(format(p.get_height(), '.0f'), 
+               (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha = 'center', va = 'center', 
+                xytext = (0, 9), 
+                textcoords = 'offset points')     
+                
+                
+def POS2IC(df1, df2, period, y1, y2, label1, label2): 
+    fig, axes = plt.subplots(ncols=2, nrows=1, figsize=(18,8))
+    for i in range(0,2):
+        f = df1.plot(ax=axes[0], 
+                    x=period, 
+                    y=[y1, 'Forecast'],
+                    color = ['#3B999E','#EA6100'], 
+                    kind="bar");
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=16);
+        f.set_yticklabels(f.get_yticklabels(), size=16);    
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend([y1, 'Forecast'])
+        f.set_title(label1, color='#606060', fontweight="bold", ha="center", size=16);  
+
+    # Annotations:
+        for p in f.patches:
+            left, bottom, width, height = p.get_bbox().bounds
+            if height != 0.0:
+                    f.annotate(format(p.get_height(), '.1f'), 
+                   (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha = 'center', va = 'center', 
+                    xytext = (0, 9), 
+                    fontsize=14,            
+                    textcoords = 'offset points')
+                
+        # Installer Count
+        f = df2.plot(ax=axes[1], 
+                    x=period, 
+                    y=[y2, 'Forecast'],
+                    color = ['#3B999E','#EA6100'], 
+                    kind="bar");
+        f.set_title(label2, color='#606060', fontweight="bold", ha="center", size=16);    
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        plt.draw()
+    # draw to populate ticklabels and to be able to set size etc.    
+        f.set_yticklabels(f.get_yticklabels(), size=16);    
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=16);
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend([y2, 'Forecast'])
+    # Annotations:
+        for p in f.patches:
+            left, bottom, width, height = p.get_bbox().bounds
+            if height != 0.0:
+                    f.annotate(format(p.get_height(), '.0f'), 
+                   (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha = 'center', va = 'center', 
+                    xytext = (0, 9), 
+                    fontsize=14,            
+                    textcoords = 'offset points')      
+                
+def KWhrBarchart(df_ICm, df_ICs, col, label1, label2): 
+    fig, axes = plt.subplots(ncols=2, nrows=1, figsize=(18,8))
+    for i in range(0,2):
+        f = df_ICm.plot(ax=axes[0], 
+                    x=col, 
+                    y=['InstallerName','ReportedInstallerName'],
+                    color = ['#3B999E','#EA6100'], 
+                    kind="bar");
+        f.set_yscale('log') # the 0 label will appear if I omit this line.
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right");
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend(['InstallerName(cleaned)', 'ReportedInstallerName'])
+        f.set_title(label1, color='#606060', fontweight="bold", ha="center", size=16);  
+
+        for p in f.patches:
+                f.annotate(format(p.get_height(), '.0f'), 
+               (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha = 'center', va = 'center', 
+                xytext = (0, 9), 
+                textcoords = 'offset points')
+
+        f = df_ICs.plot(ax=axes[1],
+                    x=col, 
+                    y=['KWhr_Cleaned', 'KWhr'],
+                    color = ['#3B999E','#EA6100'], 
+                    kind="bar");
+        f.set_yscale('log')
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right");
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend(['QuantitySold(cleaned)', 'QuantitySold'])
+        f.set_title(label2, color='#606060', fontweight="bold", ha="center", size=16); 
+        for p in f.patches:
+                f.annotate(format(p.get_height(), '.0f'), 
+               (p.get_x() + p.get_width() / 2., p.get_height()), 
+                ha = 'center', va = 'center', 
+                xytext = (0, 9), 
+                textcoords = 'offset points')     
+
+def boxplot_1x4 (relevant, df, hue_value=0):
+    """
+    This function plots several box plots.
+    """
+    
+    relevant = list([relevant])
+    
+    sns.color_palette('Blues_r')
+    fig, axes = plt.subplots(ncols=4, nrows=1, figsize=(20, 5), sharey=False)
+    
+    for i in range(0, 4):
+        
+        sns.boxplot(ax=axes[0], x=df_tot[relevant[0][0]], data=df, orient='h', hue=hue_value)
+        sns.boxplot(ax=axes[1], x=df_tot[relevant[0][1]], data=df, orient='h', hue=hue_value)
+        sns.boxplot(ax=axes[2], x=df_tot[relevant[0][2]], data=df, orient='h', hue=hue_value)
+        sns.boxplot(ax=axes[3], x=df_tot[relevant[0][3]], data=df, orient='h', hue=hue_value)
+        
+def distplot_1x4 (relevant, df):
+    """
+    This function plots several box plots.
+    """
+    
+    relevant = list([relevant])
+    
+    sns.color_palette('Blues_r')
+    fig, axes = plt.subplots(ncols=4, nrows=1, figsize=(20, 5), sharey=False)
+    
+    for i in range(0, 4):
+        
+        sns.distplot(ax=axes[0], x=df_tot[relevant[0][0]])
+        sns.distplot(ax=axes[1], x=df_tot[relevant[0][1]])
+        sns.distplot(ax=axes[2], x=df_tot[relevant[0][2]])
+        sns.distplot(ax=axes[3], x=df_tot[relevant[0][3]])
+        
+def correlation(df):
+    """
+    This function plots a correlogram.
+    """
+    #Plot
+    fig, ax = plt.subplots(figsize=(18, 14))
+    mask = np.triu(df.corr())
+    ax = sns.heatmap(round(df.corr(), 1),
+                     annot=True,
+                     mask=mask,
+                     cmap="coolwarm",
+                     vmax=1,
+                     center=0,
+                     vmin=-1)
+    # Table
+    return df.corr().round(2)
+
+# Function to calculate missing values by column
+
+def missing_values_table(df):
+        # Total missing values
+        mis_val = df.isnull().sum()
+        
+        # Percentage of missing values
+        mis_val_percent = 100 * mis_val / len(df)
+        
+        # Make a table with the results
+        mis_val_table = pd.concat([mis_val, mis_val_percent], axis=1)
+        
+        # Rename the columns
+        mis_val_table_ren_columns = mis_val_table.rename(
+        columns = {0 : 'Missing Values', 1 : '% of Total Values'})
+        
+        # Sort the table by percentage of missing descending
+        mis_val_table_ren_columns = mis_val_table_ren_columns[
+            mis_val_table_ren_columns.iloc[:,1] != 0].sort_values(
+        '% of Total Values', ascending=False).round(3)
+        
+        # Print some summary information
+        print ("The selected dataframe has " + str(df.shape[1]) + " columns.\n"      
+            "There are " + str(mis_val_table_ren_columns.shape[0]) +
+              " columns that have missing values.")
+        
+        # Return the dataframe with missing information
+        return mis_val_table_ren_columns
+
+# Function for finding descripencies in dataset
+def meta(df, transpose=True):
+    """
+    This function returns a dataframe that lists:
+    - column names
+    - nulls abs
+    - nulls rel
+    - dtype
+    - duplicates
+    - number of diffrent values (nunique)
+    """
+    metadata = []
+    dublicates = sum([])
+    for elem in df.columns:
+
+        # Counting null values and percantage
+        null = df[elem].isnull().sum()
+        rel_null = round(null/df.shape[0]*100, 2)
+
+        # Defining the data type
+        dtype = df[elem].dtype
+
+        # Check dublicates
+        duplicates = df[elem].duplicated().any()
+
+        # Check number of nunique vales
+        nuniques = df[elem].nunique()
+
+
+        # Creating a Dict that contains all the metadata for the variable
+        elem_dict = {
+            'varname': elem,
+            'nulls': null,
+            'percent': rel_null,
+            'dtype': dtype,
+            'dup': duplicates,
+            'nuniques': nuniques
+        }
+        metadata.append(elem_dict)
+
+    meta = pd.DataFrame(metadata, columns=['varname', 'nulls', 'percent', 'dtype', 'dup', 'nuniques'])
+    meta.set_index('varname', inplace=True)
+    meta = meta.sort_values(by=['nulls'], ascending=False)
+    if transpose:
+        return meta.transpose()
+    print(f"Shape: {df.shape}")
+
+    return meta
+
+# Correlation diagram
+def correlation(df):
+    """
+    This function plots a correlogram.
+    """
+    #Plot
+    fig, ax = plt.subplots(figsize=(18, 14))
+    mask = np.triu(df.corr())
+    ax = sns.heatmap(round(df.corr()*100, 0),
+                     annot=True,
+                     mask=mask, cmap="vlag_r")
+    return df.corr().round(2)
+
+# Defining a fucntion for plotting categorical variable and rate of churn
+def plot_categorical_variables_bar(data, column_name, rotation = 0, horizontal_adjust = 0, figsize = (15,6), percentage_display = True, plot_defaulter = True,
+                                   fontsize_percent = 'xx-small', ha='centre'):
+    
+    '''
+    Function to plot Categorical Variables Bar Plots
+    
+    Inputs:
+        data: DataFrame
+            The DataFrame from which to plot
+        column_name: str
+            Column's name whose distribution is to be plotted
+        figsize: tuple, default = (18,6)
+            Size of the figure to be plotted
+        percentage_display: bool, default = True
+            Whether to display the percentages on top of Bars in Bar-Plot
+        plot_defaulter: bool
+            Whether to plot the Bar Plots for Defaulters or not
+        rotation: int, default = 0
+            Degree of rotation for x-tick labels
+        horizontal_adjust: int, default = 0
+            Horizontal adjustment parameter for percentages displayed on the top of Bars of Bar-Plot
+        fontsize_percent: str, default = 'xx-small'
+            Fontsize for percentage Display
+        
+    '''
+    print(f"Total Number of unique categories of {column_name} = {len(data[column_name].unique())}")
+    
+    plt.figure(figsize = figsize, tight_layout = True)
+    sns.set(style = 'whitegrid', font_scale = 1.2)
+    
+    #plotting overall distribution of category
+    plt.subplot(1,2,1)
+    data_to_plot = data[column_name].value_counts().sort_values(ascending = False)
+    ax = sns.barplot(x = data_to_plot.index, y = data_to_plot, palette = 'Set1')
+    
+    if percentage_display:
+        total_datapoints = len(data[column_name].dropna())
+        for p in ax.patches:
+            ax.text(p.get_x() + horizontal_adjust, p.get_height() + 0.005 * total_datapoints, '{:1.02f}%'.format(p.get_height() * 100 / total_datapoints), fontsize = fontsize_percent)
+        
+    plt.xlabel(column_name, labelpad = 7.5)
+    plt.title(f'Distribution of {column_name}', pad = 10)
+    plt.xticks(rotation = rotation)
+    plt.ylabel('Counts')
+    
+    #plotting distribution of category for churn
+    if plot_defaulter:
+        percentage_defaulter_per_category = (data[column_name][data.churn == 1].value_counts() * 100 / data[column_name].value_counts()).dropna().sort_values(ascending = False)
+
+        plt.subplot(1,2,2)
+        sns.barplot(x = percentage_defaulter_per_category.index, y = percentage_defaulter_per_category, palette = 'Set2')
+        plt.ylabel('Percentage of churner per category')
+        plt.xlabel(column_name, labelpad = 7.5)
+        plt.xticks(rotation = rotation)
+        plt.title(f'Percentage of churner for each category of {column_name}', pad = 10)
+    plt.show()
+    print()
+    print()
+    print("*"*100)
+
+# Defining a function for numerical feature with options for different plots
+def plot_numerical_variables(data, column_name, plots = ['distplot', 'CDF', 'box', 'violin', 'bar','count'],
+                             scale_limits = None, figsize = (12,6), 
+                              histogram = True, log_scale = False):
+    
+    '''
+    Function to plot continuous variables distribution
+    
+    Inputs:
+        data: DataFrame
+            The DataFrame from which to plot.
+        column_name: str
+            Column's name whose distribution is to be plotted.
+        plots: list, default = ['distplot', 'CDF', box', 'violin']
+            List of plots to plot for Continuous Variable.
+        scale_limits: tuple (left, right), default = None
+            To control the limits of values to be plotted in case of outliers.
+        figsize: tuple, default = (20,8)
+            Size of the figure to be plotted.
+        histogram: bool, default = True
+            Whether to plot histogram along with distplot or not.
+        log_scale: bool, default = False
+            Whether to use log-scale for variables with outlying points.
+    '''
+    data_to_plot = data.copy()
+    if scale_limits:
+        #taking only the data within the specified limits
+        data_to_plot[column_name] = data[column_name][(data[column_name] > scale_limits[0]) & (data[column_name] < scale_limits[1])]
+
+    number_of_subplots = len(plots)
+    plt.figure(figsize = figsize)
+    sns.set_style('whitegrid')
+    
+    for i, ele in enumerate(plots):
+        plt.subplot(1, number_of_subplots, i + 1)
+        plt.subplots_adjust(wspace=0.25)
+        
+        if ele == 'CDF':
+            #making the percentile DataFrame for both positive and negative Class Labels
+            percentile_values_0 = data_to_plot[data_to_plot.churn == 0][[column_name]].dropna().sort_values(by = column_name)
+            percentile_values_0['Percentile'] = [ele / (len(percentile_values_0)-1) for ele in range(len(percentile_values_0))]
+            
+            percentile_values_1 = data_to_plot[data_to_plot.churn == 1][[column_name]].dropna().sort_values(by = column_name)
+            percentile_values_1['Percentile'] = [ele / (len(percentile_values_1)-1) for ele in range(len(percentile_values_1))]
+            
+            plt.plot(percentile_values_0[column_name], percentile_values_0['Percentile'], color = 'darkorange', label = 'Non-churner')
+            plt.plot(percentile_values_1[column_name], percentile_values_1['Percentile'], color = 'seagreen', label = 'churner')
+            plt.xlabel(column_name)
+            plt.ylabel('Probability')
+            plt.title('CDF of {}'.format(column_name))
+            plt.legend(fontsize = 'medium')
+            if log_scale:
+                plt.xscale('log')
+                plt.xlabel(column_name + ' - (log-scale)')
+        
+        if ele == 'distplot':  
+            sns.distplot(data_to_plot[column_name][data['churn'] == 0].dropna(),
+                         label='Non-churner', hist = False, color='darkorange')
+            sns.distplot(data_to_plot[column_name][data['churn'] == 1].dropna(),
+                         label='churner', hist = False, color='seagreen')
+            plt.xlabel(column_name)
+            plt.ylabel('Probability Density')
+            plt.legend(fontsize='medium')
+            plt.title("Dist-Plot of {}".format(column_name))
+            if log_scale:
+                plt.xscale('log')
+                plt.xlabel(f'{column_name} (log scale)')
+
+        if ele == 'violin':  
+            sns.violinplot(x='churn', y=column_name, data=data_to_plot, palette="Set2")
+            plt.title("Violin-Plot of {}".format(column_name))
+            if log_scale:
+                plt.yscale('log')
+                plt.ylabel(f'{column_name} (log Scale)')
+                
+        if ele == 'bar':  
+            sns.barplot(x='churn', y=column_name, data=data_to_plot, palette="Set2")
+            plt.title("Bar-Plot of {}".format(column_name))
+            if log_scale:
+                plt.yscale('log')
+                plt.ylabel(f'{column_name} (log Scale)')
+
+        if ele == 'box':  
+            sns.boxplot(x='churn', y=column_name, data=data_to_plot, palette="Set2")
+            plt.title("Box-Plot of {}".format(column_name))
+            if log_scale:
+                plt.yscale('log')
+                plt.ylabel(f'{column_name} (log Scale)')
+        
+        if ele == 'count':  
+            sns.countplot(x=column_name, hue='churn', data=data_to_plot, palette="Set2")
+            plt.title("countplot of {}".format(column_name))
+            plt.legend(loc='upper right')
+            if log_scale:
+                plt.yscale('log')
+                plt.ylabel(f'{column_name} (log Scale)')
+
+    plt.show()
+
+def dkey(first, second):
+    if first == second and second > 0:
+        return 1
+    else:
+         return 0
+        
+def todumm(cat):
+    if cat >1: 
+        return 1
+    else:
+        return 0
+
+    
+############################################################################################################################   
+####################################### Create Customer Health table with growth categories: ###############################
+############################################################################################################################   
+
+def growth_category(row):
+        result = []
+        if row >= 20:
+             result = 'High Growth'
+        elif row >= 5:
+             result = 'Moderate Growth'
+        elif row <= 5:
+             result = 'Flat'
+        elif row >=-20:
+             result = 'Decline'
+        elif row <=-20:
+             result = 'High Decline'      
+        else:
+             result = 'Insufficient Data'
+        return result
+    
+    
+def FirstOrderWk(df, installer):
+    dfAll =[]
+    for i in installer:
+        df_acc = df.query("InstallerName == @i & ProductType == 'Microinverter' & QuantitySold > 0").groupby(["InvoiceDate"], as_index=False)["QuantitySold"].sum().sort_values("InvoiceDate", ascending=True).head(1)  
+        df_acc['InstallerName'] = i
+        dfAll.append(df_acc)
+        df_Act = pd.concat(dfAll,ignore_index=True)
+        df_Act.fillna(0).sort_values('InvoiceDate', ascending = True)           
+    return df_Act.sort_values("QuantitySold", ascending = False)  
+
+      
+def LastOrderWk(df, installer):
+    dfAll =[]
+    for i in installer:
+        df_acc = df.query("InstallerName == @i & ProductType == 'Microinverter' & QuantitySold > 0").groupby(["WorkWeek"], as_index=False)["QuantitySold"].sum().sort_values("WorkWeek", ascending=False).head(1)  
+        df_acc['InstallerName'] = i
+        dfAll.append(df_acc)
+        df_Act = pd.concat(dfAll,ignore_index=True)
+        df_Act.fillna(0).sort_values('WorkWeek', ascending = True)           
+    return df_Act.sort_values("QuantitySold", ascending = False)    
+
+    
+def CurrentOrderWk(df, installer):
+    dfAll =[]
+    for i in installer:
+        df_acc = df.query("InstallerName == @i & ProductType == 'Microinverter' & QuantitySold > 0").sort_values("WorkWeek", ascending=False)
+        df_acc = df_acc.groupby(["WorkWeek"], as_index=False)["QuantitySold"].sum() 
+        dfWW = df.query("ProductType == 'Microinverter'").groupby(["WorkWeek"], as_index=False)["QuantitySold_k"].sum()
+        df_acc = dfWW.merge(df_acc, on='WorkWeek', how='left').fillna(0)
+        df_acc = Averages(df_acc, 'QuantitySold')
+#        df_acc = df_acc.query("QuantitySold > 0")
+        df_acc['InstallerName'] = i
+        df_acc['Wkly_Trend%'] = ((df_acc.Avg_4wk/df_acc.Avg_13wk)-1)
+        df_acc = df_acc.tail(1)
+        df_acc = df_acc[['InstallerName','WorkWeek','QuantitySold','Avg_4wk','Avg_13wk','Wkly_Trend%']]
+        dfAll.append(df_acc)
+        df_Act = pd.concat(dfAll,ignore_index=True)
+        df_Act.fillna(0).sort_values('WorkWeek', ascending = True)           
+    return df_Act.sort_values("QuantitySold", ascending = False)    
+       
+
+def CustHealth(df,TAM, AccOwn):   
+    
+    InstallerTAM = TAM.query("InstallerAccountOwner == @AccOwn").groupby(['InstallerName','InstallerCountry'], as_index=False)['PV_TAM'].max().sort_values('PV_TAM', ascending = False)
+    
+    Installers = df.query("InstallerAccountOwner == @AccOwn").groupby(['InstallerName'], as_index=False)['QuantitySold'].sum().sort_values('QuantitySold', ascending = False)
+    InstallerQty23 = df.query("InstallerAccountOwner == @AccOwn & Year == '23'").groupby(['InstallerName'], as_index=False)['QuantitySold'].sum().sort_values('QuantitySold', ascending = False)
+    InstallerQty24 = df.query("InstallerAccountOwner == @AccOwn & Year == '24'").groupby(['InstallerName'], as_index=False)['QuantitySold'].sum().sort_values('QuantitySold', ascending = False)
+
+    Installers = InstallerTAM.merge(Installers, on='InstallerName', how='left')
+    Installers = Installers.merge(InstallerQty23, on='InstallerName', how='left')
+    Installers = Installers.merge(InstallerQty24, on='InstallerName', how='left')
+
+    Installers.rename(columns={'QuantitySold_x':'ST_Total', 
+                               'QuantitySold_y':'ST_23',
+                               'QuantitySold':'ST_24'}, inplace=True)
+    
+    Installer50 = Installers.InstallerName.tolist()
+    
+    accown = LastOrderWk(df, Installer50)
+    accown = Installers.merge(accown, on='InstallerName', how='left')
+
+    accown.rename(columns={ 'WorkWeek':'LastOrderWk',
+                            'QuantitySold':'LastOrderQty'}, inplace=True)
+    return accown    
+
+def CurrCustHealth(df, AccOwn):   
+    Installers = df.query("InstallerAccountOwner == @AccOwn & ProductType == 'Microinverter'").groupby(['InstallerName'], as_index=False)['QuantitySold'].sum().sort_values('QuantitySold', ascending = False)
+    Installer50 = Installers.InstallerName.tolist()
+    accown = CurrentOrderWk(df, Installer50)
+    accown = Installers.merge(accown, on='InstallerName', how='left')
+    accown.rename(columns={'QuantitySold_x':'POS_L8Q', 
+                            'WorkWeek':'CurrentOrderWk',
+                            'QuantitySold_y':'CurrentOrderQty'}, inplace=True)
+#    accown['Growth_Cat'] = accown['Trend%'].apply(growth_category)
+    return accown        
+
+def ExtCustHealthColour(CurrHealth, CustHealth, dffInstaller, dfkeys, SAM, dfICIN, SPA):   
+    ExtHealth = CustHealth.merge(CurrHealth[['InstallerName','Avg_4wk','Avg_13wk','Wkly_Trend%']], on='InstallerName', how='left').fillna(0)
+    ExtHealth = ExtHealth.merge(dffInstaller[['InstallerName','BOQ', 'EOQ', 'Delta']], on='InstallerName', how='left').fillna(0)
+    ExtHealth = ExtHealth.merge(dfkeys[['InstallerName', 'InstallerCustomerKey']], on='InstallerName', how='left').fillna(0) 
+    ExtHealth = ExtHealth.merge(dfICIN[['InstallerName' ,'InstallerAccountOwner', 'Q124_ST', 'Q224_ST', 'Q324_ST', 'Q424_ST', '24Q1_Activations', '24Q2_Activations', '24Q3_Activations', '24Q4_Activations','SPA']], on='InstallerName', how='left').fillna(0)    #CHANGE InstallerAccountOwner to CustHealth
+#    ExtHealth = ExtHealth.merge(SPA[['InstallerName', 'Q124_ST_SPA', 'Q224_ST_SPA', 'Q324_ST_SPA']], on='InstallerName', how='left').fillna(0) 
+    
+    ExtHealth.drop_duplicates(['InstallerName'], keep='first',  inplace=True)
+    ExtHealth.rename(columns={'InstallerCustomerKey': 'InstallerKey',
+                         '24Q1_Activations' : '24Q1_Acti',
+                         '24Q2_Activations' : '24Q2_Acti', 
+                         '24Q3_Activations' : '24Q3_Acti', 
+                         '24Q4_Activations' : '24Q4_Acti',      
+#                         'Q124_ST_x': 'Q124_ST',
+#                         'Q224_ST_x': 'Q224_ST',
+#                         'Q324_ST_x': 'Q324_ST'                             
+                         }, inplace=True)
+    
+    ExtHealth['Activation_Trend%'] = ((ExtHealth['24Q2_Acti'] / ExtHealth['24Q1_Acti'])-1).fillna(0)*100      # IMPROVE!!! 4wk over 13 wk? 
+    ExtHealth['Wkly_Trend%'] = ExtHealth['Wkly_Trend%']*100
+#    ExtHealth['YoY_Growth%'] = (((ExtHealth['ST_24'] / ExtHealth['ST_23'])-1)*100).fillna(0)
+#    ExtHealth['SPA'] = ExtHealth['Q324_ST_SPA'].apply(lambda x: 1 if x > 0 else 0)
+    ExtHealth['PV_TAM_Units'] = (ExtHealth['PV_TAM']*1000000 / 420)
+    ExtHealth['Enph_SoW%'] =  (ExtHealth['ST_24'] / (ExtHealth['PV_TAM_Units'] * ((int(pd.Timestamp.today().strftime('%W')) / 52))) * 100).fillna(0)
+    
+    ExtHealth.replace([np.inf, -np.inf], 999, inplace=True)
+    
+    ExtHealth.LastOrderQty = ExtHealth.LastOrderQty.astype(int)
+    ExtHealth.InstallerKey = ExtHealth.InstallerKey.astype(int)
+    
+    ExtHealth['Current_CW'] = CurrWW
+    #ExtHealth['LastOrder_CW'] = -(ExtHealth.Current_CW.str[3:].astype('int') - ExtHealth.LastOrderWk.str[3:].astype('int') - 1)
+    
+    ExtHealth = ExtHealth[['InstallerCountry','InstallerName','InstallerAccountOwner','InstallerKey',
+                           'PV_TAM','PV_TAM_Units','Enph_SoW%',
+                           'ST_Total','ST_23','ST_24',
+                           'LastOrderWk','LastOrderQty','Wkly_Trend%',
+                           'Q124_ST', 'Q224_ST', 'Q324_ST', 'Q424_ST',
+                           '24Q1_Acti','24Q2_Acti','24Q3_Acti','24Q4_Acti','Activation_Trend%',
+                           'BOQ', 'EOQ', 'Delta','SPA']]
+    
+    #    ExtHealth['Forecast Achievement'] = round((ExtHealth['Q324_ST'] / ExtHealth['Forecast'])*100,2)   ##### producing inf value cannot be converted?!
+
+    #all floats to int:
+    ExtHealth.fillna(0)
+    
+    cols = ExtHealth.select_dtypes(include=['float64'])
+    
+    for col in cols:
+        ExtHealth[col] = round(ExtHealth[col]).apply(lambda x: int(x) if x == x else "")
+    
+    return ExtHealth.sort_values("PV_TAM", ascending = False)
+
+############################################################################################################################   
+################################################    Create YOY Comparision:   ##############################################
+############################################################################################################################   
+
+
+def YoY(df, Country):
+    df_1 = df.query("ProductType == 'Microinverter'& Year == '24' & InstallerCountry == @Country")
+    df_2 = df.query("ProductType == 'Microinverter' & Year == '23' & InstallerCountry == @Country")
+
+    # POS Micro
+    df_POS = df_2.groupby(["Month"], as_index=False)["QuantitySold_k"].sum()
+    df_POS1 = df_1.groupby(["Month"], as_index=False)["QuantitySold_k"].sum()
+
+    df_POS = df_POS.merge(df_POS1, on='Month', how='left')
+
+    df_POS.rename(columns={'QuantitySold_k_x': '2023','QuantitySold_k_y': '2024'}, inplace=True)
+    df_POS.fillna(0, inplace = True)
+
+    # Installer Count Micro:
+    df_IC = df_1.groupby(["Month"], as_index=False)["InstallerName"].nunique()
+    df_IC1 = df_2.groupby(["Month"], as_index=False)["InstallerName"].nunique()
+    df_IC = df_IC1.merge(df_IC, on='Month', how='left')
+    df_IC.rename(columns={'InstallerName_x': 'IC_2023','InstallerName_y': 'IC_2024'}, inplace=True)
+    return df_POS, df_IC
+
+
+
+def YoYKWhr(df, Country):
+    
+    Month = {'Month': ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'], 'Year0': [0,0,0,0,0,0,0,0,0,0,0,0]}
+    Month = pd.DataFrame(data=Month)
+    
+    df_23 = df.query("ProductType == 'Storage' & Year == '23' & InstallerCountry == @Country")
+    df_24 = df.query("ProductType == 'Storage' & Year == '24' & InstallerCountry == @Country")
+    
+    df_POS1 = df_24.groupby(["Month"], as_index=False)["KWhr"].sum()
+    df_POS2 = df_23.groupby(["Month"], as_index=False)["KWhr"].sum()
+
+    df_POS = Month.merge(df_POS1, on='Month', how='left')
+    df_POS = df_POS.merge(df_POS2, on='Month', how='left')
+
+    df_POS.rename(columns={'KWhr_x': '2024','KWhr_y': '2023'}, inplace=True)
+    df_POS.fillna(0, inplace = True)
+
+    # Installer Count Micro:
+    
+    df_IC1 = df_24.groupby(["Month"], as_index=False)["InstallerName"].nunique()
+    df_IC2 = df_23.groupby(["Month"], as_index=False)["InstallerName"].nunique()
+    
+    Month
+    df_IC = Month.merge(df_IC1, on='Month', how='left')
+    df_IC = df_IC.merge(df_IC2, on='Month', how='left')
+    
+    df_IC.rename(columns={'InstallerName_x': 'IC_2024','InstallerName_y': 'IC_2023'}, inplace=True)
+    return df_POS, df_IC
+
+
+
+def Act_ST_Graphs(df_lag, header, SIZE, COUNT, METRIC):
+    fig, ax1 = plt.subplots(figsize=SIZE)
+
+    f1 = sns.lineplot(data = df_lag, x='WorkWeek', y='Activations', marker='o', label='Activations', sort = False, color='#EA6100', ax=ax1)
+    f1.set_xticklabels(f1.get_xticklabels(),rotation=40, ha="right");
+    f1.set_title(header, fontsize=16)
+    
+    f2 = sns.barplot(data = df_lag, y=METRIC, x='WorkWeek',alpha=0.8, label='QuantitiesSold', color= '#3B999E', ax=ax1)
+    f2.set_xticklabels(f2.get_xticklabels(),rotation=40, ha="right");
+    #f2.set_title("Inventory & IBC Micros", fontsize=16)
+    ax1.set_ylabel('Quantity (Sold & Activated)')
+
+    
+    if COUNT == 1:
+        
+        for p in f2.patches:
+                left, bottom, width, height = p.get_bbox().bounds
+                if height != 0.0:
+                        f2.annotate(format(p.get_height(), '.0f'), 
+                       (p.get_x() + p.get_width() / 2., p.get_height()), 
+                        ha = 'center', va = 'center', 
+                        xytext = (0, 9), 
+                        fontsize=12,            
+                        textcoords = 'offset points')      
+        for p in f1.patches:
+                left, bottom, width, height = p.get_bbox().bounds
+                if height != 0.0:
+                        f1.annotate(format(p.get_height(), '.0f'), 
+                       (p.get_x() + p.get_width() / 2., p.get_height()), 
+                        ha = 'center', va = 'center', 
+                        xytext = (0, 9), 
+                        fontsize=12,            
+                        textcoords = 'offset points') 
+    
+    else:     
+        return df_lag.tail(5)
+    
+def ActivationsWide(df,label, Fsize): 
+    f = df.plot(x='WorkWeek', 
+                y=['Avg_4wk','Avg_13wk'],
+                color = ['#EA6100','#3B999E'], 
+                kind="line",
+                figsize=Fsize);
+    f.set_title(label, color='#606060', fontweight="bold", ha="center", size=14);
+    f.yaxis.grid(color='gray', linestyle='dotted');
+    plt.draw()
+# draw to populate ticklabels and to be able to set size etc.    
+    f.set_yticklabels(f.get_yticklabels(), size=10);
+    f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="center", size=8);
+    f.xaxis.set_minor_locator(mdates.YearLocator())
+    f.spines['top'].set_visible(False)
+    f.spines['right'].set_visible(False)
+    f.spines['bottom'].set_visible(False)
+    f.spines['left'].set_visible(False)   
+    
+    
+def STICACT(df1, df2, df3, period, y1, y2, label1, label2, label3): 
+    fig, axes = plt.subplots(ncols=3, nrows=1, figsize=(24,6))
+    for i in range(0,3):
+        f1 = df1.plot(ax=axes[0], 
+                    x=period, 
+                    y=[y1, 'Forecast'],
+                    color = ['#3B999E','#EA6100'], 
+                    kind="bar");
+        f1.yaxis.grid(color='gray', linestyle='dotted');
+        plt.draw()
+    # draw to populate ticklabels and to be able to set size etc.         
+        f1.set_yticklabels(f1.get_yticklabels(), size=16);    
+        f1.set_xticklabels(f1.get_xticklabels(), rotation=30, ha="right", size=16);
+        f1.spines['top'].set_visible(False)
+        f1.spines['right'].set_visible(False)
+        f1.spines['bottom'].set_visible(False)
+        f1.spines['left'].set_visible(False)
+        f1.legend([y1, 'Forecast'])
+        f1.set_title(label1, color='#606060', fontweight="bold", ha="center", size=16);  
+
+    # Annotations:
+        for p in f1.patches:
+            left, bottom, width, height = p.get_bbox().bounds
+            if height != 0.0:
+                    f1.annotate(format(p.get_height(), '.1f'), 
+                   (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha = 'center', va = 'center', 
+                    xytext = (0, 9), 
+                    fontsize=14,            
+                    textcoords = 'offset points')
+                
+    ##############Installer Count##############
+        f = df2.plot(ax=axes[1], 
+                    x=period, 
+                    y=[y2, 'Forecast'],
+                    color = ['#3B999E','#EA6100'], 
+                    kind="bar");
+        f.set_title(label2, color='#606060', fontweight="bold", ha="center", size=16);    
+        f.yaxis.grid(color='gray', linestyle='dotted');
+        plt.draw()
+    # draw to populate ticklabels and to be able to set size etc.    
+        f.set_yticklabels(f.get_yticklabels(), size=16);    
+        f.set_xticklabels(f.get_xticklabels(), rotation=30, ha="right", size=16);
+        f.spines['top'].set_visible(False)
+        f.spines['right'].set_visible(False)
+        f.spines['bottom'].set_visible(False)
+        f.spines['left'].set_visible(False)
+        f.legend([y2, 'Forecast'])
+    # Annotations:
+        for p in f.patches:
+            left, bottom, width, height = p.get_bbox().bounds
+            if height != 0.0:
+                    f.annotate(format(p.get_height(), '.0f'), 
+                   (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha = 'center', va = 'center', 
+                    xytext = (0, 9), 
+                    fontsize=14,            
+                    textcoords = 'offset points')  
+                    
+    ###############Activation####################
+
+        f2 = df3.plot(ax=axes[2], 
+                    x='WorkWeek', 
+                    y=['Avg_4wk','Avg_13wk'],
+                    color = ['#EA6100','#3B999E'], 
+                    kind="line");
+        f2.set_title(label3, color='#606060', fontweight="bold", ha="center", size=16);
+        f2.yaxis.grid(color='gray', linestyle='dotted');
+        plt.draw()
+        plt.legend(['Avg_4wk','Avg_13wk'])
+    # draw to populate ticklabels and to be able to set size etc.    
+        f2.set_yticklabels(f2.get_yticklabels(), size=16);
+        f2.set_xticklabels(f2.get_xticklabels(), rotation=30, ha="center", size=16);
+        f2.spines['top'].set_visible(False)
+        f2.spines['right'].set_visible(False)
+        f2.spines['bottom'].set_visible(False)
+        f2.spines['left'].set_visible(False)        
+
+        
+def display_side_by_side(dfs:list, captions:list, tablespacing=10):
+    """Display tables side by side to save vertical space
+    Input:
+        dfs: list of pandas.DataFrame
+        captions: list of table captions
+    """
+    output = ""
+    for (caption, df) in zip(captions, dfs):
+        output += df.style.hide().set_table_attributes("style='display:inline'").set_caption(caption)._repr_html_()
+        output += tablespacing * "\xa0"
+    display(HTML(output))

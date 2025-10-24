@@ -1,0 +1,505 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+from matplotlib.patches import Rectangle
+
+colors  = ['#EA6100','#439E58','#FFD02C','#3B999E','#F45270','#2C436F','#DE2100']
+
+# Forecast from Indirect, change lists for new quarters!!!
+l1 =["25_Q1", "25 Q2", "25 Q3", "25 Q4", "26_Q1"]
+l2 =[0, 0, 0, 0, 0]
+
+def add_count(plot):
+    '''adds counts to bar and count plots'''
+    for p in plot.patches:
+        plot.annotate(format(p.get_height(), '.0f'), 
+                       (p.get_x() + p.get_width() / 2., p.get_height()), 
+                       ha = 'center', va = 'center', 
+                       xytext = (0, 9), 
+                       textcoords = 'offset points')
+
+def value_counts_perc(df, column):
+    value_counts = df[column].value_counts()
+    perc = []
+    for i in value_counts:
+        perc.append(str(round(i/sum(value_counts)*100,2)))
+    return perc
+
+def Averages(df, param):
+    df_Act = df
+    df_Act = df_Act.groupby(['WorkWeek'], as_index=False)[param].sum()
+    df_Act['Avg_4wk'] = df_Act['QuantitySold'].rolling(4).mean().fillna(0)
+    df_Act['Avg_13wk'] = df_Act['QuantitySold'].rolling(13).mean().fillna(0)
+    df_Act['WorkWeek'] = df.groupby(['WorkWeek'], as_index=False)[param].sum().WorkWeek
+    df_Act[param] = df.groupby(['WorkWeek'], as_index=False)[param].sum().QuantitySold
+    return df_Act
+
+def QAverages(df):
+    df_Act = df.groupby(['WorkWeek'], as_index=False)["QuantitySold"].sum()
+    df_Act['Avg_4wk'] = df_Act['QuantitySold'].rolling(4, min_periods=1).mean().fillna(0)
+    df_Act['Avg_13wk'] = df_Act['QuantitySold'].rolling(13, min_periods=1).mean().fillna(0)
+    df_Act['WorkWeek'] = df.groupby(['WorkWeek'], as_index=False)["QuantitySold"].sum().WorkWeek
+    df_Act['QuantitySold'] = df.groupby(['WorkWeek'], as_index=False)["QuantitySold"].sum().QuantitySold
+    return df_Act
+
+def WoH_table(dfi, df, OMD, distri, ProductGroup):
+    dfAll =[]
+    for product in ProductGroup:
+            dfi_acc = dfi.query("AccountName == @distri & ProductGroup == @product & QtyonHand > 0").sort_values("WorkWeek", ascending=False)
+            df_acc = df.query("PartnerName == @distri & ProductGroup == @product & QuantitySold > 0").sort_values("WorkWeek", ascending=False)
+            OMD_acc = OMD.query("PartnerName == @distri & ProductGroup == @product").sort_values("WorkWeek", ascending=False)
+
+            dfi_acc = dfi_acc.groupby(["WorkWeek"], as_index=False)["QtyonHand"].sum()
+            OMD_acc = OMD_acc.groupby(["WorkWeek"], as_index=False)["ShipmentQty"].sum()
+            
+            # Merge QuantitiesSold to Invetory first to create 0 values for rolling averages:
+            
+            df_acc = QAverages(df_acc)
+            QS = df_acc[['WorkWeek', 'QuantitySold']]
+            df_act = dfi_acc.merge(QS, on='WorkWeek', how='left').fillna(0)
+            df_act = QAverages(df_act)
+            
+            df_act = df_act.merge(OMD_acc, on='WorkWeek', how='left').fillna(0)
+            df_act = dfi_acc.merge(df_act, on='WorkWeek', how='left').fillna(0)
+            
+            df_act["Inv_Delta"] = df_act.ShipmentQty - df_act.QuantitySold 
+            df_act["WoH"] = df_act.QtyonHand / df_act.Avg_4wk
+            df_act["ProductGroup"] = product
+            
+            #inf
+            mean_value = np.nanmean(df_act['WoH'][df_act['WoH'] != np.inf])
+            df_act.replace([np.inf, -np.inf], mean_value, inplace=True)
+            
+            dfAll.append(df_act)
+            dfWoH = pd.concat(dfAll,ignore_index=True)
+            dfWoH = dfWoH.fillna(0).sort_values(["WorkWeek","ProductGroup"], ascending =[True, False])
+            
+    return dfWoH.iloc[-59:]
+
+
+def WoHGraphs(dfwoh, header):
+    fig, ax1 = plt.subplots(figsize=(18,6))
+    palette = ['#F45270','#2C436F']
+
+    f1 = sns.barplot(data = dfwoh, y='QtyonHand', x='WorkWeek', hue = 'ProductGroup' ,alpha=0.6, palette = palette)
+    f1.set_xticklabels(f1.get_xticklabels(),rotation=40, ha="right");
+    f1.set_title(header, fontsize=16)
+    
+    ax2 = ax1.twinx()
+    
+    f2 = sns.lineplot(data = dfwoh, x='WorkWeek', y='WoH', hue= "ProductGroup", marker='o',markers=True, lw=3, sort = False, palette = palette)
+    #f2.set_xticklabels(f2.get_xticklabels(),rotation=40, ha="right");
+    #f2.set_title("Inventory & IBC Micros", fontsize=16)
+
+    ax2.set_ylim(ymin=0) # let bars touch the bottom of the plot
+
+    for item, color in zip(dfwoh.groupby('ProductGroup'),palette):
+    #item[1] is a grouped data frame
+    
+        for x,y,w in item[1][['WorkWeek','WoH','WoH']].values:
+            ax2.text(x,y,f'{w:.1f}',color='k', ma = 'right', weight = 'bold', rotation = 45, va = 'bottom', size='large')
+            
+    return dfwoh.sort_values('WorkWeek', ascending = True).tail(10);
+ 
+
+    
+def WoHGraph1(dfwoh, color, header):
+    fig, ax1 = plt.subplots(figsize=(18,6))
+    palette = color
+
+    f1 = sns.barplot(data = dfwoh, y='QtyonHand', x='WorkWeek', hue = 'ProductGroup' ,alpha=0.6, palette = palette)
+    f1.set_xticklabels(f1.get_xticklabels(),rotation=40, ha="right");
+    f1.set_title(header, fontsize=16)
+    
+    ax2 = ax1.twinx()
+    
+    f2 = sns.lineplot(data = dfwoh, x='WorkWeek', y='WoH', hue= "ProductGroup", marker='o',markers=True, lw=3, sort = False, palette = palette)
+    #f2.set_xticklabels(f2.get_xticklabels(),rotation=40, ha="right");
+    #f2.set_title("Inventory & IBC Micros", fontsize=16)
+
+    ax2.set_ylim(ymin=0) # let bars touch the bottom of the plot
+
+    for item, color in zip(dfwoh.groupby('ProductGroup'),palette):
+    #item[1] is a grouped data frame
+    
+        for x,y,w in item[1][['WorkWeek','WoH','WoH']].values:
+            ax2.text(x,y,f'{w:.1f}',color='k', ma = 'right', weight = 'bold', rotation = 45, va = 'bottom', size='large')
+            
+    return dfwoh.sort_values('WorkWeek', ascending = True).tail(5);    
+    
+    
+def AoH_table(dfi, df, OMD, distri, ProductGroup):
+    dfAll =[]
+    for product in ProductGroup:
+            df_acc = df.query("InstallerName == @Installer & ProductGroup == @product & QtyonHand > 0").sort_values("WorkWeek", ascending=False)
+            dfA_acc = dfA.query("Installer == @Installer & ProductGroup == @product & QuantitySold > 0").sort_values("WorkWeek", ascending=False)
+
+            df_acc = QAverages(df_acc).iloc[-59:-1]
+            dfi_acc = dfi_acc.groupby(["WorkWeek"], as_index=False)["QtyonHand"].sum().iloc[-52:-1]
+
+            df_acc = df_acc.merge(OMD_acc, on='WorkWeek', how='left').fillna(0)
+            df_acc = dfi_acc.merge(df_acc, on='WorkWeek', how='left').fillna(0)
+            df_acc["WoH_Activation"] = df_acc.QtyonHand / df_acc.Avg_4wk
+            df_acc["ProductGroup"] = product
+            
+            #inf
+#           max_value = np.nanmax(df_acc['WoH'][df_acc['WoH'] != np.inf])
+            mean_value = np.nanmean(df_acc['WoH'][df_acc['WoH'] != np.inf])
+            df_acc.replace([np.inf, -np.inf], mean_value, inplace=True)
+            
+            dfAll.append(df_acc)
+            dfAoH = pd.concat(dfAll,ignore_index=True)
+            dfAoH.fillna(0).sort_values('WorkWeek', ascending = True)           
+            
+    return dfAoH    
+    
+    
+def WoHGraphs_Installer(dfwoh, header):
+    fig, ax1 = plt.subplots(figsize=(18,6))
+    palette = ['#F45270','#2C436F']
+
+    f1 = sns.barplot(data = dfwoh, y='ST', x='WorkWeek', hue = 'ProductGroup' ,alpha=0.6, palette = palette)
+    f1.set_xticklabels(f1.get_xticklabels(),rotation=40, ha="right");
+    f1.set_title(header, fontsize=16)
+    
+    ax2 = ax1.twinx()
+    
+    f2 = sns.lineplot(data = dfwoh, x='WorkWeek', y='WoH', hue= "ProductGroup", marker='o',markers=True, lw=3, sort = False, palette = palette)
+    #f2.set_xticklabels(f2.get_xticklabels(),rotation=40, ha="right");
+    #f2.set_title("Inventory & IBC Micros", fontsize=16)
+
+    ax2.set_ylim(ymin=0) # let bars touch the bottom of the plot
+
+    for item, color in zip(dfwoh.groupby('ProductGroup'),palette):
+    #item[1] is a grouped data frame
+    
+        for x,y,w in item[1][['WorkWeek','WoH','WoH']].values:
+            ax2.text(x,y,f'{w:.1f}',color='k', ma = 'right', weight = 'bold', rotation = 45, va = 'bottom', size='large')
+            
+    return dfwoh.sort_values('WorkWeek', ascending = True).tail(5);    
+    
+    
+def multidim_crosstab(df, Customer, var2):
+    '''Combines ST Units and KWhr for Partners or Installers on desired level
+     Inputs:
+        df: DataFrame
+            The DataFrame from which to plot.
+        Customer: str
+            First dimension: Are we analyzing on Installer or Partner level
+        var2: str 
+            Column for second dimension.'''
+            
+    #Prepare list of recent quarters
+
+    df_b = df.groupby(["Quarter"], as_index=False)["InstallerName"].nunique().fillna('0')
+    q = df_b.Quarter.str.replace(' ', '').tolist()
+
+    # prepare Microinverter df
+    dfm = df.query("ProductType == 'Microinverter'")
+    df_q = pd.crosstab(dfm.TransactionNumber, dfm.Quarter, values=dfm.QuantitySold, aggfunc='sum').fillna('0')
+    dfQ = df.merge(df_q, on='TransactionNumber', how='left')
+    dfQ.columns = dfQ.columns.str.replace(' ', '')
+
+    #cols = ["21Q4","22Q1","22Q2","22Q3","22Q4","23Q1","23Q2","23Q3"]
+    dfQ[q] = dfQ[q].apply(pd.to_numeric, downcast='signed', errors='coerce', axis=1)
+
+    df_micro = dfQ.groupby([Customer,var2]).agg(
+         Q1_23 = ('23Q1','sum'),
+         Q2_23 = ('23Q2','sum'),
+         Q3_23 = ('23Q3','sum'),
+         Q4_23 = ('23Q4','sum'),
+         Q1_24 = ('24Q1','sum'),
+         Q2_24 = ('24Q2','sum'),
+         Q3_24 = ('24Q3','sum'),
+         Q4_24 = ('24Q4','sum'),
+         ).reset_index()
+    
+    # STORAGE:
+    dfs = df.query("ProductType == 'Storage'")
+    df_kwhr = pd.crosstab(dfs.TransactionNumber, dfs.Quarter, values=dfs.KWhr, aggfunc='sum').fillna('0')
+    dfkwhr = df.merge(df_kwhr, on='TransactionNumber', how='left')
+    dfkwhr.columns = dfkwhr.columns.str.replace(' ', '')
+
+    dfkwhr[q] = dfkwhr[q].apply(pd.to_numeric, downcast='signed', errors='coerce', axis=1)
+
+    df_storage = dfkwhr.groupby([Customer,var2]).agg(
+         Q1_23 = ('23Q1','sum'),
+         Q2_23 = ('23Q2','sum'),
+         Q3_23 = ('23Q3','sum'),
+         Q4_23 = ('23Q4','sum'),
+         Q1_24 = ('24Q1','sum'),
+         Q2_24 = ('24Q2','sum'),
+         Q3_24 = ('24Q3','sum'),
+         Q4_24 = ('24Q4','sum'),
+    ).reset_index()
+
+    # Mergin 2 crosstabs
+    df_micro[var2].replace([0],['Unknown'], inplace=True)
+    df_storage[var2].replace([0],['Unknown'], inplace=True)
+    df_micro['Concat'] = df_micro[Customer] + df_micro[var2]
+    df_storage['Concat'] = df_storage[Customer] + df_storage[var2]
+    df_combi = df_micro.merge(df_storage, on='Concat', how='left')
+
+
+    df_combi.rename(columns={Customer + '_x': Customer,
+                             var2 + '_x': var2,
+                             'Q1_23_x' : 'Q123_ST',
+                             'Q2_23_x' : 'Q223_ST',
+                             'Q3_23_x' : 'Q323_ST',
+                             'Q4_23_x' : 'Q423_ST',
+                             'Q1_24_x' : 'Q124_ST',
+                             'Q2_24_x' : 'Q224_ST',
+                             'Q3_24_x' : 'Q324_ST',
+                             'Q4_24_x' : 'Q424_ST',
+                             'Q1_23_y' : 'Q123_KWhr',
+                             'Q2_23_y' : 'Q223_KWhr',
+                             'Q3_23_y' : 'Q323_KWhr',
+                             'Q4_23_y' : 'Q423_KWhr',
+                             'Q1_24_y' : 'Q124_KWhr',
+                             'Q2_24_y' : 'Q224_KWhr',
+                             'Q3_24_y' : 'Q324_KWhr',
+                             'Q4_24_y' : 'Q424_KWhr',
+                             }, inplace=True)
+    
+    df_combi = df_combi[[Customer,var2,
+                       'Q123_ST','Q223_ST','Q323_ST', 'Q423_ST','Q124_ST','Q224_ST','Q324_ST','Q424_ST',
+                       'Q123_KWhr','Q223_KWhr','Q323_KWhr','Q423_KWhr','Q124_KWhr','Q224_KWhr','Q324_KWhr','Q424_KWhr']]
+    return df_combi
+
+def hems_crosstab(df, Customer, var2):
+    '''Combines ST Units and KWhr for Partners or Installers on desired level
+     Inputs:
+        df: DataFrame
+            The DataFrame from which to plot.
+        Customer: str
+            First dimension: Are we analyzing on Installer or Partner level
+        var2: str 
+            Column for second dimension.'''
+            
+    #Prepare list of recent quarters
+
+    #df_b = df.groupby(["Quarter"], as_index=False)["InstallerName"].nunique()
+    #q = df_b.Quarter.str.replace(' ', '').tolist()
+    q = ['23Q3', '23Q4', '24Q1', '24Q2', '24Q3', '24Q4']
+
+    # prepare Microinverter df
+    dfm = df.query("ProductName == 'HEMS-HP-01'")
+    df_q = pd.crosstab(dfm.TransactionNumber, dfm.Quarter, values=dfm.QuantitySold, aggfunc='sum').fillna('0')
+    dfQ = df.merge(df_q, on='TransactionNumber', how='left')
+    dfQ.columns = dfQ.columns.str.replace(' ', '')
+
+    dfQ[q] = dfQ[q].apply(pd.to_numeric, downcast='signed', errors='coerce', axis=1)
+
+    df_micro = dfQ.groupby([Customer,var2]).agg(
+         Q3_23 = (q[0],'sum'),
+         Q4_23 = (q[1],'sum'),
+         Q1_24 = (q[2],'sum'),
+         Q2_24 = (q[3],'sum'),
+         Q3_24 = (q[4],'sum'),
+         Q4_24 = (q[5],'sum')
+    ).reset_index()
+
+    # STORAGE:
+
+    dfs = df.query("ProductName == 'HEMS-GW-01'")
+    df_kwhr = pd.crosstab(dfs.TransactionNumber, dfs.Quarter, values=dfs.KWhr, aggfunc='sum').fillna('0')
+    dfkwhr = df.merge(df_kwhr, on='TransactionNumber', how='left')
+    dfkwhr.columns = dfkwhr.columns.str.replace(' ', '')
+
+    dfkwhr[q] = dfkwhr[q].apply(pd.to_numeric, downcast='signed', errors='coerce', axis=1)
+
+    df_storage = dfkwhr.groupby([Customer,var2]).agg(
+         Q3_23 = (q[0],'sum'),
+         Q4_23 = (q[1],'sum'),
+         Q1_24 = (q[2],'sum'),
+         Q2_24 = (q[3],'sum'),
+         Q3_24 = (q[4],'sum'),
+         Q4_24 = (q[5],'sum')
+         ).reset_index()
+
+    # Mergin 2 crosstabs
+    df_micro[var2].replace([0],['Unknown'], inplace=True)
+    df_storage[var2].replace([0],['Unknown'], inplace=True)
+    df_micro['Concat'] = df_micro[Customer] + df_micro[var2]
+    df_storage['Concat'] = df_storage[Customer] + df_storage[var2]
+    df_combi = df_micro.merge(df_storage, on='Concat', how='left')
+
+
+    df_combi.rename(columns={Customer + '_x': Customer,
+                             var2 + '_x': var2,
+                             'Q3_23_x' : 'Q323_HP',
+                             'Q4_23_x' : 'Q423_HP',
+                             'Q1_24_x' : 'Q124_HP',
+                             'Q2_24_x' : 'Q224_HP',
+                             'Q3_24_x' : 'Q324_HP',
+                             'Q4_24_x' : 'Q424_HP',
+                             'Q3_23_y' : 'Q323_Hub',
+                             'Q4_23_y' : 'Q423_Hub',
+                             'Q1_24_y' : 'Q124_Hub',
+                             'Q2_24_y' : 'Q224_Hub',
+                             'Q3_24_y' : 'Q324_Hub',
+                             'Q4_24_x' : 'Q424_Hub',
+                             }, inplace=True)
+    df_combi = df_combi[[Customer,var2,
+                        'Q323_HP', 'Q423_HP','Q124_HP','Q224_HP','Q324_HP','Q424_HP',
+                        'Q323_Hub','Q423_Hub','Q124_Hub','Q224_Hub','Q324_Hub','Q424_Hub']]
+    return df_combi
+
+
+def PartnerSellOutR6Q(df, Country, FCST, Partner, PartnerIC, Product):
+    
+    if Product == 'Storage':
+            df1 = df.query("PartnerCountry == @Country & PartnerName == @Partner & ProductType == @Product & KWhr > 0")
+            df2 = df.query("InstallerCountry == @Country & PartnerName == @Partner & ProductType == @Product & KWhr > 0")
+    else:
+            df1 = df.query("PartnerCountry == @Country & PartnerName == @Partner & ProductType == @Product")
+            df2 = df.query("InstallerCountry == @Country & PartnerName == @Partner & ProductType == @Product")
+     
+    # ST Micro
+    df_ST = df1.groupby(["Quarter"], as_index=False)["QuantitySold_k"].sum()
+    df_ST['InstallerCountry'] = df2.groupby(["Quarter"], as_index=False)["QuantitySold_k"].sum().QuantitySold_k
+    df_ST['Export'] = df_ST['InstallerCountry'] - df_ST['QuantitySold_k']
+    df_ST['ExportRatio'] = round((df_ST['QuantitySold_k']/df_ST['InstallerCountry']-1)*100, 2).astype(str)+'%'
+    df_ST['QoQgrowth'] = round((df_ST['InstallerCountry'].pct_change()-1)*100, 2).astype(str)+'%'
+
+    # Forecast from Indirect
+    df_ST['Forecast'] = 0
+    
+    if len(Partner) > 1:
+        df_ST.Forecast.iat[-1] = FCST.loc[FCST['InstallerCountry'] == Country, 'Forecast'].iloc[0]/1000
+        l3 = FCST.query("InstallerCountry == @Country").iloc[0, 2:] / 1000
+    
+    else:     
+        df_ST.Forecast.iat[-1] = FCST.loc[FCST['PartnerName'] == Partner[0], 'Forecast'].iloc[0] / 1000
+        l3 = FCST.query("PartnerName == @Partner").iloc[0, 2:]/1000
+        
+    # creating the DataFrame
+    fore = pd.DataFrame(list(zip(l1, l2, l3)))
+    fore.columns = ['Quarter', 'QuantitySold_k', 'Forecast']
+    df_ST = df_ST.append(fore)
+
+    # Installer Count:
+    df_IC = df1.groupby(["Quarter"], as_index=False)["InstallerName"].nunique()
+    df_IC['Forecast'] = 0
+    df_IC['Forecast'].iat[-1] = PartnerIC
+
+    #Plot Graphs:
+    return df_ST, df_IC
+
+
+############################################
+#           Distributor Health             #
+############################################
+def LastInventoryWk(df, installer):
+    dfAll =[]
+    for i in installer:
+        df_acc = df.query("AccountName == @i & ProductType == 'Microinverter'").sort_values("WorkWeek", ascending=False)
+        df_acc = df_acc.groupby(["WorkWeek"], as_index=False)["QtyonHand"].sum() 
+        dfWW = df.query("ProductType == 'Microinverter'").groupby(["WorkWeek"], as_index=False)["CustomerKey"].sum()
+        df_acc = dfWW.merge(df_acc, on='WorkWeek', how='left').fillna(0)
+        df_acc = df_acc.query("QtyonHand > 0")
+        df_acc['AccountName'] = i
+        df_acc = df_acc.tail(1)
+        df_acc = df_acc[['AccountName','WorkWeek','QtyonHand']]
+        
+        df_acc.rename(columns={'AccountName':'PartnerName',
+                               'WorkWeek' : 'LastInvWeek'}, inplace=True)
+        dfAll.append(df_acc)
+        df_Act = pd.concat(dfAll,ignore_index=True)
+        df_Act.fillna(0).sort_values('LastInvWeek', ascending = True)               
+    return df_Act.sort_values("LastInvWeek", ascending = False)     
+
+
+def LastTransferWk(df, installer):
+    dfAll =[]
+    for i in installer:
+        df_acc = df.query("PartnerName == @i & ProductType == 'Microinverter' & QuantitySold > 0").sort_values("WorkWeek", ascending=False)
+        df_acc = df_acc.groupby(["WorkWeek"], as_index=False)["QuantitySold"].sum() 
+        dfWW = df.query("ProductType == 'Microinverter'").groupby(["WorkWeek"], as_index=False)["QuantitySold_k"].sum()
+        df_acc = dfWW.merge(df_acc, on='WorkWeek', how='left').fillna(0)
+        df_acc = Averages(df_acc, 'QuantitySold')
+        df_acc = df_acc.query("QuantitySold > 0")
+        df_acc['PartnerName'] = i
+        df_acc['Trend%'] = ((df_acc.Avg_4wk/df_acc.Avg_13wk)-1)
+        df_acc = df_acc.tail(1)
+        df_acc = df_acc[['PartnerName','WorkWeek','QuantitySold','Avg_4wk','Avg_13wk','Trend%']]
+        dfAll.append(df_acc)
+        df_Act = pd.concat(dfAll,ignore_index=True)
+        df_Act.fillna(0).sort_values('WorkWeek', ascending = True)           
+    return df_Act.sort_values("QuantitySold", ascending = False)    
+
+    
+def CurrentTransferWk(df, installer):
+    dfAll =[]
+    for i in installer:
+        df_acc = df.query("PartnerName == @i & ProductType == 'Microinverter' & QuantitySold > 0").sort_values("WorkWeek", ascending=False)
+        df_acc = df_acc.groupby(["WorkWeek"], as_index=False)["QuantitySold"].sum() 
+        dfWW = df.query("ProductType == 'Microinverter'").groupby(["WorkWeek"], as_index=False)["QuantitySold_k"].sum()
+        df_acc = dfWW.merge(df_acc, on='WorkWeek', how='left').fillna(0)
+        df_acc = Averages(df_acc, 'QuantitySold')
+#        df_acc = df_acc.query("QuantitySold > 0")
+        df_acc['PartnerName'] = i
+        df_acc['Trend%'] = ((df_acc.Avg_4wk/df_acc.Avg_13wk)-1)*100
+        df_acc = df_acc.tail(1)
+        df_acc = df_acc[['PartnerName','WorkWeek','QuantitySold','Avg_4wk','Avg_13wk','Trend%']]
+        dfAll.append(df_acc)
+        df_Act = pd.concat(dfAll,ignore_index=True)
+        df_Act.fillna(0).sort_values('WorkWeek', ascending = True)           
+    return df_Act.sort_values("QuantitySold", ascending = False)    
+
+
+def DistriHealth(df, partners):   
+    Installers = df.query("PartnerName == @partners & ProductType == 'Microinverter'").groupby(['PartnerName'], as_index=False)['QuantitySold'].sum().sort_values('QuantitySold', ascending = False)
+    Installer15 = Installers.PartnerName.tolist()
+
+    accown = LastTransferWk(df, Installer15)
+    accown = Installers.merge(accown, on='PartnerName', how='left')
+
+    accown.rename(columns={'QuantitySold_x':'ST_L8Q', 
+                            'WorkWeek':'LastSellOutWk',
+                            'QuantitySold_y':'LastSellOutQty'}, inplace=True)
+#    accown['Growth_Cat'] = accown['Trend%'].apply(growth_category)
+    return accown        
+
+def CurrDistriHealth(df, partners):   
+    Installers = df.query("PartnerName == @partners & ProductType == 'Microinverter'").groupby(['PartnerName'], as_index=False)['QuantitySold'].sum().sort_values('QuantitySold', ascending = False)
+    Installer15 = Installers.PartnerName.tolist()
+    accown = CurrentTransferWk(df, Installer15)
+    accown = Installers.merge(accown, on='PartnerName', how='left')
+    accown.rename(columns={'QuantitySold_x':'ST_L8Q', 
+                            'WorkWeek':'CurrentSellOutWk',
+                            'QuantitySold_y':'CurrentSellOutQty'}, inplace=True)
+#    accown['Growth_Cat'] = accown['Trend%'].apply(growth_category)
+    return accown        
+
+def ExtDistriHealth(CurrHealth, CustHealth, dffInstaller, dfkeys, INV):   
+    
+    ExtHealth = CurrHealth.merge(CustHealth[['PartnerName','LastSellOutWk',
+                                             'LastSellOutQty']], on='PartnerName', how='left').fillna(0)
+    ExtHealth = ExtHealth.merge(dffInstaller[['PartnerName','Forecast']], on='PartnerName', how='left').fillna(0)
+    ExtHealth = ExtHealth.merge(dfkeys, on='PartnerName', how='left').fillna(0) 
+    ExtHealth = ExtHealth.merge(INV, on='PartnerName', how='left').fillna(0) 
+    ExtHealth.drop_duplicates(['PartnerName'], keep='first',  inplace=True)
+    ExtHealth.rename(columns={'PartnerCustomerKey': 'PartnerKey',
+                        'Avg_4wk' : 'Avg_4wk_AoT',
+                        'Avg_13wk' : 'Avg_13wk_AoT',
+                        'InstallerName' : 'Count_InstallerNames',
+                        'Forecast' : 'IndirectFCST'     
+                        }, inplace=True)
+    
+    #ExtHealth['Activation_Growth'] = ExtHealth['23Q4_Activation'] / ExtHealth['23Q3_Activation'].fillna(0)
+    
+    ExtHealth.LastSellOutQty = ExtHealth.LastSellOutQty.astype(int)
+    ExtHealth.CurrentSellOutQty = ExtHealth.CurrentSellOutQty.astype(int)
+    ExtHealth.PartnerKey = ExtHealth.PartnerKey.astype(int)
+    ExtHealth['W.o.H'] = ExtHealth['QtyonHand'] / ExtHealth['Avg_4wk_AoT']
+    
+    ExtHealth = ExtHealth[['PartnerName','PartnerKey',
+                           'ST_L8Q','LastSellOutWk','LastSellOutQty',
+                           'Avg_4wk_AoT','Avg_13wk_AoT','Trend%',
+                           'Count_InstallerNames','IndirectFCST',
+                           'LastInvWeek', 'QtyonHand', 'W.o.H']]
+    ExtHealth['Trend%'] = round(ExtHealth['Trend%'],2).astype(str)+'%'
+    return ExtHealth

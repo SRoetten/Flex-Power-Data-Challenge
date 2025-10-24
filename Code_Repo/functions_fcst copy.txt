@@ -1,0 +1,275 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.patches import Rectangle
+
+colors2 = ['#DE2100','#439E58']
+
+#################################    
+####### Only Forecast ###########    
+#################################  
+
+def Country(dff, Country, Type):
+    dff_p = dff.query("InstallerCountry == @Country & ProductType == @Type")
+    dff_p = dff_p.groupby(["InstallerCountry"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+         ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    return dff_p
+
+def Products(dff, Country, Type):
+    dff_p = dff.query("InstallerCountry == @Country & ProductType == @Type")
+    dff_p = dff_p.groupby(["ProductName"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    return dff_p
+
+def Owners(dff, Country, Type):
+    dff_p = dff.query("InstallerCountry == @Country & ProductType == @Type")
+    dff_p = dff_p.groupby(["InstallerAccountOwner"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    return dff_p
+
+def Installers(dff, Country, Type, CQ):
+    dff_p = dff.query("InstallerCountry == @Country & ProductType == @Type")
+    dff_p = dff_p.groupby(["InstallerName", "InstallerAccountOwner"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    #dff_p.style.hide_index()
+    return dff_p
+
+def Distri(dff, Country, Type):
+    dff_p = dff.query("InstallerCountry == @Country & ProductType == @Type")
+    dff_p = dff_p.groupby(["PartnerName"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    return dff_p
+
+#################################    
+####### Forecast vs. POS ########    
+#################################    
+    
+def InstallerAmbition(df, dff, Country, Type, CQ):
+    dff_p = dff.query("InstallerCountry == @Country & ProductType == @Type")
+    dff_p = dff_p.groupby(["InstallerName", "InstallerAccountOwner"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    #dff_p.style.hide_index()
+    
+#Eligible Product POS:
+    dfP =[]
+    dfc = df.query("InstallerCountry == @Country & Quarter == @CQ")
+    dfc = dfc.groupby(["InstallerName"], as_index=False)["QuantitySold"].sum()
+    dfc.rename(columns={'InstallerName': 'InstallerName'}, inplace=True)
+    
+    others = dff.loc[dff['InstallerName'].str.contains("Others", case=False, na=False)]
+    others = others.groupby(["InstallerName"], as_index=False)["QuantitySold_template"].sum()
+
+    # transform KWhr to MWhr:
+    dff_p = dff_p.merge(dfc, on='InstallerName', how='left').fillna(0)
+    dff_p = dff_p.merge(others, on='InstallerName', how='left').fillna(0)
+    
+    dff_p["QuantitySold"] = np.where(dff_p["QuantitySold"] == 0, dff_p["QuantitySold_template"], dff_p["QuantitySold"])
+    dff_p['Ambition'] = round(dff_p['Forecast']/dff_p['QuantitySold']*100,2).astype(str)+'%'
+
+    dfP = dff_p[['InstallerName', 'QuantitySold' ,'Forecast', 'Ambition']]
+    dfP = dfP.query("InstallerName != 'Total'")
+    
+    return dfP  
+    
+
+def Product(df, dff, Country, Type, Products, CQ):
+    dff_p = dff.query("InstallerCountry == @Country & ProductType == @Type")
+    dff_p = dff_p.groupby(["ProductName"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    #dff_p.style.hide_index()
+
+    #Eligible Product POS:
+    dfP =[]
+    dfc = df.query("InstallerCountry == @Country & ProductName in @Products & Quarter == @CQ")
+    df_Prod = dfc.groupby(["ProductName"], as_index=False)["QuantitySold_k"].sum()
+
+    # transform KWhr to MWhr:
+    dff_p = dff_p.merge(df_Prod, on='ProductName', how='left').fillna(0)
+    df_Prod = dff_p[['ProductName','Forecast','QuantitySold_k']]
+    dfP = df_Prod.query("ProductName != 'Total'")
+    dfP['Forecast'] = dfP.Forecast/1000
+    return dfP    
+    
+def SAM_POS(df, dff, Country, Type, SAM, CQ):
+    dff_p = dff.query("InstallerCountry == @Country & InstallerAccountOwner == @SAM & ProductType == @Type")
+    dff_p = dff_p.groupby(["InstallerAccountOwner"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    #dff_p.style.hide_index()
+    
+    #Eligible Product POS:
+    dfP =[]
+    dfc = df.query("InstallerCountry == @Country & InstallerAccountOwner in @SAM & Quarter == @CQ  & ProductType == @Type")
+    df_Prod = dfc.groupby(["InstallerAccountOwner"], as_index=False)["QuantitySold_k"].sum()
+
+    # transform KWhr to MWhr:
+    dff_p = dff_p.merge(df_Prod, on='InstallerAccountOwner', how='left').fillna(0)
+    df_Prod = dff_p[['InstallerAccountOwner','QuantitySold_k','Forecast']]
+    dfP = df_Prod.query("InstallerAccountOwner != 'Total'")
+    dfP['Forecast'] = dfP.Forecast/1000
+    return dfP
+
+
+def Partner(df, dff, Country, Type, Partners, CQ):
+    dff_p = dff.query("InstallerCountry == @Country & PartnerName == @Partners & ProductType == @Type")
+    dff_p = dff_p.groupby(["PartnerName"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    #dff_p.style.hide_index()
+    #Eligible Product POS:
+    dfP =[]
+    dfc = df.query("InstallerCountry == @Country & PartnerName in @Partners & Quarter == @CQ  & ProductType == @Type")
+    df_Prod = dfc.groupby(["PartnerName"], as_index=False)["QuantitySold_k"].sum()
+    # transform KWhr to MWhr:
+    dff_p = dff_p.merge(df_Prod, on='PartnerName', how='left').fillna(0)
+    df_Prod = dff_p[['PartnerName','Forecast','QuantitySold_k']]
+    dfP = df_Prod.query("PartnerName != 'Total'")
+    dfP['Forecast'] = dfP.Forecast/1000
+    return dfP
+
+def Product_KWhr(df, dff, Country, Type, Products, CQ):
+    dff_p = dff.query("InstallerCountry == @Country & ProductType == @Type")
+    dff_p = dff_p.groupby(["ProductName"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    #dff_p.style.hide_index()
+
+    #Eligible Product POS:
+    dfP =[]
+    dfc = df.query("InstallerCountry == @Country & ProductName in @Products & Quarter == @CQ")
+    df_Prod = dfc.groupby(["ProductName"], as_index=False)["MWhr"].sum()
+
+    # transform KWhr to MWhr:
+    dff_p = dff_p.merge(df_Prod, on='ProductName', how='left').fillna(0)
+    df_Prod = dff_p[['ProductName','Forecast','MWhr']]
+    dfP = df_Prod.query("ProductName != 'Total'")
+    dfP['Forecast'] = dfP.Forecast/1000
+    return dfP
+
+def SAM_KWhr(df, dff, Country, Type, SAM, CQ):
+    dff_p = dff.query("InstallerCountry == @Country & InstallerAccountOwner == @SAM")
+    dff_p = dff_p.groupby(["InstallerAccountOwner"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    #dff_p.style.hide_index()
+    
+    #Eligible Product POS:
+    dfP =[]
+    dfc = df.query("InstallerCountry == @Country & InstallerAccountOwner in @SAM & Quarter == @CQ")
+    df_Prod = dfc.groupby(["InstallerAccountOwner"], as_index=False)["MWhr"].sum()
+
+    # transform KWhr to MWhr:
+    dff_p = dff_p.merge(df_Prod, on='InstallerAccountOwner', how='left').fillna(0)
+    df_Prod = dff_p[['InstallerAccountOwner','MWhr','Forecast']]
+    dfP = df_Prod.query("InstallerAccountOwner != 'Total'")
+    dfP['Forecast'] = dfP.Forecast/1000
+    return dfP
+
+def Partner_KWhr(df, dff, Country, Type, Partners, CQ):
+    dff_p = dff.query("InstallerCountry == @Country & PartnerName == @Partners & ProductType == @Type")
+    dff_p = dff_p.groupby(["PartnerName"]).agg(
+         Forecast = ('Forecast','sum'), 
+         Q1_25 = ('25_Q1','sum'),        
+         Q2_25 = ('25_Q2','sum'),     
+         Q3_25 = ('25_Q3','sum'),
+         Q4_25 = ('25_Q4','sum'),
+         Q1_26 = ('26_Q1','sum'),
+    ).reset_index()
+    dff_p.append(dff_p.sum(numeric_only=True), ignore_index=True)
+    dff_p = dff_p.replace('NaN','Total')
+    #dff_p.style.hide_index()
+    #Eligible Product POS:
+    dfP =[]
+    dfc = df.query("InstallerCountry == @Country & PartnerName in @Partners & Quarter == @CQ  & ProductType == @Type")
+    df_Prod = dfc.groupby(["PartnerName"], as_index=False)["MWhr"].sum()
+    # transform KWhr to MWhr:
+    dff_p = dff_p.merge(df_Prod, on='PartnerName', how='left').fillna(0)
+    df_Prod = dff_p[['PartnerName','Forecast','MWhr']]
+    dfP = df_Prod.query("PartnerName != 'Total'")
+    dfP['Forecast'] = dfP.Forecast/1000
+    return dfP
